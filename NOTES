@@ -1,0 +1,71 @@
+
+   re: how to calculate pressure from files produced by the GEM model
+
+If the record "HY" exists in the file and the "voir" gives "sigma"
+as the type of level, it is really a hybrid level. This is due to
+historical reasons of the operations wanting to be able to read the
+level without any decoder. No mater what, when you see the
+levels coded in sigma with an "HY" record, it is considered hybrid.
+If there is no "HY" record and a "PT" record is found, it is
+considered "eta". If the "PT" record does not exist then, it is
+a true sigma coordinate. The record "P0" must exist at all times or
+you would not be able to convert to pressure units.
+
+Note the levels that you see listed are normalized between the
+values of 0.0 and 1.0. We use the "read_decode_hyb" to decode
+and obtain the following values for: PTOP,PREF,RCOEF
+PTOP= pressure at the top of the model
+PREF= reference pressure
+RCOEF= coefficient R
+Then we calculate the true hybrid coordinate "unnormalized" by this
+function:
+
+For each k level:
+hyb_true(k) = hyb_norm(k) + (1-hyb_norm(k)) * ptop/pref
+
+Then we read the field "P0" for the surface pressure (2D record)
+
+The following is the source code from our function used to calculate
+hybrid to pressure for each point (i,j,k) where the size is ni*nj*nk
+
+ptop=PTOP
+pref=PREF
+rcoef=RCOEF
+ps(ni*nj) is the variable holding the values from field "P0"
+pressure(ni*nj*nk) is the resulting 3D field of pressure
+hyb(nk) is the hyb_norm
+hybm_8(nk), hybm(nk) is the hyb seen by the model (true)
+
+-----------------------------------------
+      fact = 1.0
+*     detect if ps is in millibars or pascals
+      if (ps(1).lt.40000.0) then
+          conv = 100.0
+          fact = fact/100.0
+      else
+          conv = 1.0
+      endif
+
+      do k=1,nk
+         if (hyb(k).lt.0 .or. hyb(k).gt. 1.0) then
+           print *,'ERROR in hybrid_to_pres: invalid value(s) in hybrid
+coordinate array'
+           return
+         endif
+         hybm_8(k)= hyb(k) + (1-hyb(k)) * ptop/pref
+      enddo
+      prpref = 100.*pref
+
+      pr1 = 1./(1. - ptop/pref)
+      do k = 1,nk
+         pibb(k)  = ((hybm_8(k) - ptop/pref)*pr1 ) ** rcoef
+         pia(k)  = prpref * ( hybm_8(k) - pibb(k) )
+      enddo
+
+      do k=1,nk
+         pibb(k) = pibb(k)*conv
+         do i=1,ni*nj
+            pressure(i,k) = (pia(k)+pibb(k)*ps(i)) * fact
+         enddo
+         hybm(k) = hybm_8(k)
+      enddo

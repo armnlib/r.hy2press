@@ -1,0 +1,461 @@
+  program hy2pres
+  implicit none
+
+!author  Luc Corbeil Nov.2002 (niv2pres)
+
+!revision
+!v102    Andre Plante/ V.Lee Aug. 2004  correct output date
+!v102                                   added -coor option 
+!v102    SIG=P/Ps, SIGPT=(P-Pt)/(Ps-Pt), HYBLG=hybrid,Laprise+Girard
+!v103    C Beaudoin/ V.Lee Aug. 2005  add sef eta coordinate,
+!v103                         rename niv2pres to hy2pres,menage
+!v104    V.Lee Jul. 2006 for new IP1 encoded RPN FST files,
+!v104                    corrected calls in fstluk,convip (+librmn008)
+ 
+  integer nklemax,npos
+  integer nkleiment
+  integer nklevar
+
+  parameter(nkleiment=50)
+  parameter(nklevar=10)
+  parameter(nklemax=nkleiment+nklevar+4)
+
+  character*128 defaut(nklemax),liste(0:nklemax-1),val(nklemax)
+  integer iun(nklemax-2),nfile,hyfile,kind
+
+  integer ii,i,j,k,m,ier,iunout,key, nhy,nlev,np0,npt,ne1
+  integer ip1,ip2,ip3,ni,nj,nk,datev,nvar,nvar_inter
+  integer dateo,deltat
+  integer ig1,ig2,ig3,ig4,scrap,nrectot
+  integer deet,npas,nbits,datyp
+  integer indetamin,indetamax
+
+  character*12 etiket
+  character*4 nomvar,nomvar2
+  character*1 typvar,out_S,grtyp
+
+  integer, allocatable,dimension(:) :: lst_hy,lst_glb
+  integer, allocatable,dimension(:) :: lst_p0,lst_pt,lst_e1
+  real, allocatable, dimension(:,:,:) :: press,work
+  real, allocatable, dimension(:,:) :: p0,pt,e1
+  real, allocatable, dimension(:) :: hyb,hybm
+  integer, allocatable, dimension(:) :: ip1vec,ip1arr,nrec
+
+  real rcoef,ptop,pref,etatop
+  logical hytrouve, p0trouve, pttrouve, e1trouve
+
+  logical hycoor, etacoor, sigcoor, sefcoor
+  logical hydefined, etadefined, sigdefined, sefdefined
+
+  integer longueur,fnom,fstouv,fstfrm,fstlir,fstluk,fstlnk
+  external longueur,fnom,fstouv,fstfrm,fstlir,fstluk,fstlnk
+  integer*2 subsort
+  external subsort
+  integer fstprm,fstinl,write_encode_hyb,read_decode_hyb,hybrid_to_pres2
+  integer hybrid_to_pres3
+  external fstprm,fstinl,write_encode_hyb,read_decode_hyb,hybrid_to_pres2
+  external hybrid_to_pres3
+  integer fstecr,exdb,exfin
+  external fstecr,exdb,exfin
+
+  DATA LISTE /nkleiment*'iment','ozsrt','coor',&
+ nklevar*'var','liste','help'/
+  DATA defaut/nkleiment*'SCRAP.SCRAP','out.fst','',nklevar*'    ','','AIDE'/
+  DATA val /nkleiment*'SCRAP.SCRAP','out.fst','',nklevar*'    ','','OK'/
+
+
+  npos=1                                                  
+  iunout=0
+  nrectot=0
+  hydefined=.false.
+  etadefined=.false.
+  sigdefined=.false.
+  sefdefined=.false.
+
+  ier = exdb('HY2PRES','104','NON')
+  call ccard(liste,defaut,val,nklemax,npos)
+
+!write(6,*)'valcoor=',val(nkleiment+2)(1:longueur(val(nkleiment+2)))
+  if(val(nkleiment+2)(1:longueur(val(nkleiment+2))).eq.'HYBLG') then
+     hydefined=.true.
+  elseif(val(nkleiment+2)(1:longueur(val(nkleiment+2))).eq.'SIGPT') then
+     etadefined=.true. 
+  elseif(val(nkleiment+2)(1:longueur(val(nkleiment+2))).eq.'SIG') then
+     sigdefined=.true. 
+  elseif(val(nkleiment+2)(1:longueur(val(nkleiment+2))).eq.'ETASEF') then
+     sefdefined=.true. 
+  elseif(val(nkleiment+2)(1:longueur(val(nkleiment+2))).ne.'') then
+       write(*,*) 'ERROR: option given for -coor is not valid: abort'
+       call qqexit(-1)
+  endif
+     
+!write(6,*)'val=',val(nklemax)(1:longueur(val(nklemax)))
+  if(val(nklemax)(1:longueur(val(nklemax))).eq.'AIDE') then
+     write(*,*) 'Usage: r.hy2pres -iment file_in -var [nomvar] -liste [niveaux] -coor [SIG/SIGPT/HYBLG/ETASEF] -ozsrt file_out'
+  endif
+  
+! Ouverture des fichiers
+
+  do i=1,nkleiment
+    iun(i)=0
+
+    if(val(i)(1:longueur(val(i))).eq.'SCRAP.SCRAP') then
+      nfile=i-1
+      exit
+    endif
+     nfile = min(nfile,nkleiment)
+    ier = fnom(iun(i),val(i)(1:longueur(val(i))),'RND+OLD+R/O',0)
+
+    if(ier.ne.0) then
+       write(*,*) 'ERROR: file opening failed: abort'
+       call qqexit(ier)
+    endif
+  enddo
+
+  allocate(nrec(nfile))
+
+  do i=1,nfile
+!    write(*,*) 'MESSAGE: fichier ouvert'
+
+    ier = FSTOUV(iun(i), 'RND')
+    if(ier.lt.0) then
+       write(*,*) 'ERROR: standard file opening failed: abort'
+       call qqexit(ier)
+    else
+       nrectot=nrectot+ier
+       nrec(i)=ier
+    endif
+
+!    write(*,*) 'MESSAGE: fichier standard ouvert ',val(i)(1:longueur(val(i)))
+
+  enddo
+  if(nfile.eq.0) then
+     write(*,*) 'ERROR: no standard file to check! abort'
+     call qqexit(1)
+  endif
+
+  if(iunout.eq.0)  then
+     ier = fnom(iunout,val(nkleiment+1)(1:longueur(val(nkleiment+1))),'RND+NEW',0)
+     if(ier.ne.0) then
+       write(*,*) 'ERROR: output file opening failed: abort'
+       call qqexit(ier)
+     endif
+     ier = FSTOUV(iunout, 'RND')
+     if(ier.lt.0) then
+       write(*,*) 'ERROR: output standard file opening failed: abort'
+       call qqexit(ier)
+     endif
+  endif
+
+! Link des fichiers ouverts
+
+  ier = fstlnk(iun,nfile)
+
+  hyfile=-1
+  ip1=-1
+  ip2=-1
+  ip3=-1
+!  datev=296950400
+  datev=-1
+  typvar=' '
+  etiket=' '
+
+  hytrouve=.false.
+  p0trouve=.false.
+  pttrouve=.false.
+  e1trouve=.false.
+  np0=0
+  allocate(lst_hy(nrectot),lst_glb(nrectot) &
+       ,lst_p0(nrectot) &
+       ,lst_pt(nrectot) &
+       ,lst_e1(nrectot) )
+  do ii=nfile,1,-1
+     key = fstinl(iun(ii),NI,NJ,NK,datev,etiket,ip1,ip2,ip3,typvar,'HY',lst_hy,nhy,nrectot)
+     if(nhy.gt.0) then
+        write(*,*) 'MESSAGE: HY found at key(s): ',lst_hy(1:nhy)
+        write(*,*) 'MESSAGE: taking HY at key: ',lst_hy(1)
+        hyfile=ii
+        hytrouve=.true.
+        exit
+     endif
+  enddo
+
+  ier = fstinl(iun(1),NI,NJ,NK,datev,etiket,ip1,ip2,ip3,typvar,'P0',lst_p0,np0,nrectot)
+
+  if(np0.gt.0) then
+     write(*,*) 'MESSAGE: P0 found at key(s): ',lst_p0(1:np0)
+     p0trouve=.true.
+  endif
+
+  key = fstinl(iun(1),NI,NJ,NK,datev,etiket,ip1,ip2,ip3,typvar,'PT',lst_pt,npt,nrectot)
+  if(npt.gt.0) then
+     write(*,*) 'MESSAGE: PT found at key(s): ',lst_pt(1:npt)
+     write(*,*) 'MESSAGE: taking PT at key: ',lst_pt(1)
+     pttrouve=.true.
+  endif
+
+  ier = fstinl(iun(1),NI,NJ,NK,datev,etiket,ip1,ip2,ip3,typvar,'E1',lst_e1,ne1,nrectot)
+  if(ne1.gt.0) then
+     write(*,*) 'MESSAGE: E1 found at key(s): ',lst_e1(1:ne1)
+     write(*,*) 'MESSAGE: taking E1 at key: ',lst_e1(1)
+     e1trouve=.true.
+  endif
+
+! Bilan de ce qu'on a
+!
+  if(.not.p0trouve) then
+     write(*,*) 'ERROR: no P0 record found: abort'
+     call qqexit(-1)
+  endif
+  
+  hycoor=.false.
+  etacoor=.false.
+  sigcoor=.false.
+  sefcoor=.false.
+  
+  if(hytrouve) then
+     if (etadefined .or. sigdefined .or. sefdefined) then
+         write(*,*)'ERROR: (HYB) HYBLG found, -coor=',val(nkleiment+2)(1:longueur(val(nkleiment+2))), ', abort'
+         call qqexit(-1)
+     endif
+     write(*,*) 'MESSAGE: The hybrid coordinate will be used'
+     hycoor=.true.
+  else if(pttrouve) then
+     if (hydefined .or. sigdefined) then
+         write(*,*)'ERROR: (ETA) SIGPT found, -coor=',val(nkleiment+2)(1:longueur(val(nkleiment+2))), ', abort'
+         call qqexit(-1)
+     endif
+     if(e1trouve) then
+        if (etadefined) then
+          write(*,*)'ERROR: (ETA) ETASEF found, -coor=',val(nkleiment+2)(1:longueur(val(nkleiment+2))), ', abort'
+          call qqexit(-1)
+        endif
+        write(*,*) 'MESSAGE: The sef eta coordinate will be used'
+        sefcoor=.true.
+     else
+        if (sefdefined) then
+          write(*,*)'ERROR: (ETA) SIGPT found, -coor=',val(nkleiment+2)(1:longueur(val(nkleiment+2))), ', abort'
+          call qqexit(-1)
+        endif
+        write(*,*) 'MESSAGE: The eta coordinate will be used'
+        etacoor=.true.
+     endif
+  else
+     if (hydefined .or. etadefined .or. sefdefined) then
+         write(*,*)'ERROR: (SIG) SIG found, -coor=',val(nkleiment+2)(1:longueur(val(nkleiment+2))), ', abort'
+         call qqexit(-1)
+     endif
+     write(*,*) 'MESSAGE: The sigma coordinate will be used'
+     sigcoor=.true.
+  endif
+
+! On ramasse HY
+  if(hycoor) then
+     ier = FSTPRM(lst_hy(1), dateo, deet, npas, NI, NJ, NK,nbits,&
+          scrap, IP1,&
+          IP2, IP3, TYPVAR, NOMVAR, ETIKET, scrap, IG1, IG2, IG3,&
+          IG4, scrap, scrap, scrap, scrap, scrap, scrap, scrap)
+     deltat=(deet*npas+1800)/3600
+     call incdat(datev,dateo,deltat)
+     key = read_decode_hyb(iun(hyfile), 'HY', -1, -1, ' ',-1,ptop,pref,rcoef)
+     write(*,*) 'MESSAGE: ptop=',ptop,' pref=',pref,' rcoef=',rcoef
+     key = write_encode_hyb(iunout,'HY  ',ip2,ip3,etiket,datev,ptop,pref,rcoef)
+
+     ! On ramasse PTOP
+  else if(etacoor.or.sefcoor) then
+     ier = FSTPRM(lst_pt(1), dateo, deet, npas, NI, NJ, NK,nbits,&
+          scrap, IP1,&
+          IP2, IP3, TYPVAR, NOMVAR, ETIKET, scrap, IG1, IG2, IG3,&
+          IG4, scrap, scrap, scrap, scrap, scrap, scrap, scrap)
+      deltat=(deet*npas+1800)/3600
+     call incdat(datev,dateo,deltat)
+    if(nk.ne.1) then
+        write(*,*) 'ERROR: nk for PT not equal to 1'
+        call qqexit(-1)
+     endif
+     
+     allocate(pt(ni,nj))
+!get pt(ptop),ni,nj,nk given lst_pt(1) and verify if it is uniform
+     ier=fstluk(pt,lst_pt(1),NI,NJ,NK)
+     ptop=pt(1,1)
+     do i=1,ni
+        do j=1,nj
+           if(abs(pt(i,j)-ptop)>1e-5) then
+              write(*,*) 'ERROR: PT not constant: aborting'
+              call qqexit(-1)
+           endif
+        enddo
+     enddo
+     deallocate(pt)
+
+     if(sefcoor) then
+!get e1 (etatop), ni,nj,nk using file handle lst_e1(1)
+        allocate(e1(ni,nj))
+        ier = fstluk(e1, lst_e1(1), NI, NJ, NK)
+        etatop=e1(1,1)
+        deallocate(e1)
+     endif
+
+     pref=800.0
+     rcoef=1.0
+     write(*,*) 'MESSAGE: ptop=',ptop,' pref=',pref,' rcoef=',rcoef
+!     key = write_encode_hyb(iunout,'HY  ',ip2,ip3,etiket,datev,ptop,pref,rcoef)
+  else if(sigcoor) then
+     pref=800.0
+     rcoef=1.0
+     ptop=0.0
+     write(*,*) 'MESSAGE: ptop=',ptop,' pref=',pref,' rcoef=',rcoef
+  endif
+
+! On ramasse les P0 et tout ce qu'il faut
+  
+  do 1000 m=1,np0
+     ip1=-1
+     ip2=-1
+     ip3=-1
+     datev=-1
+     typvar=' '
+     etiket=' '
+     ier = FSTPRM(lst_p0(m), dateo, deet, npas, NI, NJ, NK,nbits,&
+          scrap, IP1,&
+          IP2, IP3, TYPVAR, NOMVAR, ETIKET, scrap, IG1, IG2, IG3,&
+          IG4, scrap, scrap, scrap, scrap, scrap, scrap, scrap)
+     deltat=(deet*npas+1800)/3600
+     call incdat(datev,dateo,deltat)
+
+     if(nk.ne.1) then
+        write(*,*) 'ERROR: nk for P0 not equal to 1'
+        call qqexit(-1)
+     endif
+     
+     allocate(p0(ni,nj))
+!    get p0,ni,nj,nk using lst_p0(m)
+     ier = fstluk(p0, lst_p0(m), NI, NJ, NK)
+     !
+     ! On ramasse tous les records et tous les ip1 correspondants a ce p0.
+     !    
+     NI=-1
+     NJ=-1
+     NK=-1
+     nvar=0
+     do j=1,nklevar
+        nomvar2=val(nkleiment+2+j)
+!       print *,'nomvar2=',nomvar2,'nvar=',nvar
+        if( nomvar2=='    ' ) then
+!          print *,'nomvar2 is blank'
+           if(nvar>0) then
+              exit
+           else
+              write(*,*) 'ERROR: No valid variable names are specified in -var'
+              stop
+           endif
+        endif
+!       print *,'fstinl on nomvar2=',nomvar2
+        key = fstinl(iun(1),NI,NJ,NK,datev,etiket,-1,ip2,ip3,typvar,nomvar2 &
+             ,lst_glb(nvar+1), nvar_inter ,nrectot)
+!       print *,'nvar_inter=',nvar_inter
+        nvar=nvar+nvar_inter
+     enddo
+
+!    write(6,*)'IP1ARR nvar=',nvar
+     allocate(ip1arr(nvar),ip1vec(nvar))
+     if(nvar.ge.0.and.key.ge.0) then
+        do i=1,nvar
+           ier = FSTPRM(lst_glb(i), dateo, deet, npas, NI, NJ, NK,nbits,&
+                scrap, ip1arr(i) ,&
+                IP2, IP3, TYPVAR, NOMVAR, ETIKET, scrap, IG1, IG2, IG3,&
+                IG4, scrap, scrap, scrap, scrap, scrap, scrap, scrap)
+        enddo
+     else
+        write(*,*) 'MESSAGE: No record matching this P0: skipping'
+     endif
+   
+!remove the redundant encoded IP1s - no sort
+     ip1vec(1)=ip1arr(1)
+     nlev=1
+     do i=2,nvar
+        do k=1,nlev
+           j=k
+           if(ip1vec(j).eq.ip1arr(i)) exit
+        enddo
+        if (ip1vec(j).ne.ip1arr(i)) then
+           nlev=nlev+1
+           ip1vec(nlev)=ip1arr(i)
+        endif
+     enddo
+     deallocate (ip1arr)
+
+     write(*,*)'***********************************'
+     if (nlev.le.0) then
+         write(*,*)'No LEVELS found, no records written'
+         write(*,*)'***********************************'
+         stop
+     else
+         write(*,*)nlev,' LEVELS found'
+         write(*,*)'***********************************'
+     endif
+
+     allocate(hyb(nlev),hybm(nlev))
+!    convip returns hyb,kind given ip1vec
+     do i=1,nlev
+        call convip(ip1vec(i),hyb(i),kind,-1,out_S,.false.)
+        write(*,*) 'i=',i,'ip1vec=',ip1vec(i), 'hyb=',hyb(i),'kind=',kind
+     enddo
+
+     allocate(press(ni,nj,nlev),work(ni,nj,1))
+!    write(*,*) hyb
+!    write(*,*) ip1vec
+
+     if(sefcoor) then
+        ier = hybrid_to_pres3(press,ptop,p0,NI,NJ,hyb,etatop,nlev)
+     else
+        ier = hybrid_to_pres2(press,hybm,ptop,p0,NI,NJ,rcoef,pref,hyb,nlev)
+     endif
+
+     if (ier.lt.0) then
+         if (sefcoor) write(*,*)'Problem with function hybrid_to_pres3:ier=',ier
+         if (.not.sefcoor) write(*,*)'Problem with function hybrid_to_pres2:ier=',ier
+         stop
+     endif
+     ier = FSTPRM(lst_p0(m), dateo, deet, npas, NI, NJ, NK,nbits,&
+          datyp, IP1,&
+          IP2, IP3, TYPVAR, NOMVAR, ETIKET, grtyp, IG1, IG2, IG3,&
+          IG4, scrap, scrap, scrap, scrap, scrap, scrap, scrap)
+          deltat=(deet*npas+1800)/3600
+          call incdat(datev,dateo,deltat)
+     do k=1,nlev
+        ier = FSTECR(press(1,1,k), WORK, -nbits, iunout, dateo,& 
+             deet, npas, ni, nj,1,&
+             ip1vec(k), ip2, ip3, typvar,'PX' , etiket, grtyp,&
+             ig1, ig2, ig3, ig4, datyp, .false.)
+     enddo
+     deallocate(p0,hyb,ip1vec,hybm,press,work)
+
+ 1000  continue
+  
+!deallocate the rest of the variables
+  deallocate(lst_p0,lst_pt,lst_e1,lst_hy,lst_glb)
+
+  do i=1,nfile
+     ier = FSTFRM(iun(i))
+     call fclos(iun(i))
+  enddo
+
+  if(iunout.ne.0) then
+     ier = FSTFRM(iunout)
+     call fclos(iunout)
+  endif
+  ier = exfin('HY2PRES','104','NON')
+  
+end program hy2pres
+
+
+INTEGER*2 FUNCTION SUBSORT (A,B)
+  implicit none
+  INTEGER :: A,B
+  SUBSORT = 1
+  IF ( A == B ) SUBSORT = 0
+  IF ( A < B ) SUBSORT = -1
+  RETURN
+END FUNCTION SUBSORT
+
