@@ -18,30 +18,19 @@ CPPFLAGS = -I$(ARMNLIB)/include
 
 default: hy2pres
 
-.ftn.o:
-	r.compile -arch $(ARCH) -abi $(ABI) $(OPTIMIZ) -opt "=$(FFLAGS)" -src $<
-.ftn90.o:
-	r.compile -arch $(ARCH) -abi $(ABI) $(OPTIMIZ) -opt "=$(FFLAGS)" -src $<
+include $(ARMNLIB)/include/makefile_suffix_rules.inc
 
-.c.o:
-	r.compile -arch $(ARCH) -abi $(ABI) $(OPTIMIZ) -opt "=$(CFLAGS)" -src $<
-
-.f.o:
-	r.compile -arch $(ARCH) -abi $(ABI) $(OPTIMIZ) -opt "=$(FFLAGS)" -src $<
-.f90.o:
-	r.compile -arch $(ARCH) -abi $(ABI) $(OPTIMIZ) -opt "=$(FFLAGS)" -src $<
-.cdk90.o:
-	r.compile -arch $(ARCH) -abi $(ABI) $(OPTIMIZ) -opt "=$(FFLAGS)" -src $<
-
-
-
-FDECKS= hy2pres.ftn90 hybrid_to_pres2.ftn hybrid_to_pres3.ftn
-OBJECTS= hy2pres.o hybrid_to_pres2.o hybrid_to_pres3.o
+FDECKS= hy2pres.ftn90 hybref_688.ftn hybstag_to_pres.ftn read_decode_bang.ftn
+OBJECTS= hy2pres.o hybref_688.o hybstag_to_pres.o read_decode_bang.o
 
 FICHIERS = $(FDECKS)
 
-hy2pres: $(OBJECTS)
-	r.build -o hy2pres_$(ARCH) -obj $(OBJECTS) -librmn rmn_008
+gen_ec_arch_dir:
+#Creer le repertoire $EC_ARCH 
+	mkdir -p ./$(EC_ARCH)
+
+hy2pres: gen_ec_arch_dir $(OBJECTS)
+	r.build -o ./$(EC_ARCH)/hy2pres_tst -obj $(OBJECTS) -librmn rmn_010 
 clean:
 #Faire le grand menage. On enleve tous les fichiers sources\ninutiles et les .o 
 	-if [ "*.ftn90" != "`echo *.ftn90`" ] ; \
@@ -60,12 +49,4 @@ clean:
 	rm -f $$.f90; \
 	done \
 	fi
-	-if [ "*.ftn" != "`echo *.ftn`" ] ; \
-	then \
-	for i in *.ftn ; \
-	do \
-	fn=`r.basename $$i '.ftn'`; \
-	rm -f $$fn.f; \
-	done \
-	fi
-	rm *.o *.mod
+	rm -f *.o *.mod *.f

@@ -11,6 +11,14 @@
 !v103                         rename niv2pres to hy2pres,menage
 !v104    V.Lee Jul. 2006 for new IP1 encoded RPN FST files,
 !v104                    corrected calls in fstluk,convip (+librmn008)
+!v105    V.Lee May  2007 for unnormalized hybrid levels
+!v107    V.Lee Sept 2009: replace incdat with incdatr, no search using ip2
+!v108    V.Lee Oct  2009: introduce new compute pressure functions
+!v110    V.Lee Oct  2009: introduce an experimental staggered hybrid (SF)
+!v111    V.Lee Jan  2010: calculate press w/o the top nonstag hybrid level
+!v111                     and use fstinf to search for !! (fstlir buggy)
+!v112    V.Lee Jan 26,2010: output of PX uses compaction defined in P0/SF
+!v112                       compiler pgi9xx
  
   integer nklemax,npos
   integer nkleiment
@@ -23,60 +31,79 @@
   character*128 defaut(nklemax),liste(0:nklemax-1),val(nklemax)
   integer iun(nklemax-2),nfile,hyfile,kind
 
-  integer ii,i,j,k,m,ier,iunout,key, nhy,nlev,np0,npt,ne1
+  integer ii,i,j,k,m,ier,iunout,key, nhy,nlev,np0,npt,ne1,nsf,nbang
   integer ip1,ip2,ip3,ni,nj,nk,datev,nvar,nvar_inter
+  integer ip1x,ip2x,ip3x
   integer dateo,deltat
+  real*8 deltat_8
   integer ig1,ig2,ig3,ig4,scrap,nrectot
-  integer deet,npas,nbits,datyp
-  integer indetamin,indetamax
+  integer deet,npas,nbits,datyp,nbits_p0,datyp
 
   character*12 etiket
   character*4 nomvar,nomvar2
   character*1 typvar,out_S,grtyp
 
-  integer, allocatable,dimension(:) :: lst_hy,lst_glb
-  integer, allocatable,dimension(:) :: lst_p0,lst_pt,lst_e1
+  integer lookup_max,presvar_max,vcode
+  parameter(presvar_max=5)
+  character*6 presvar_S(presvar_max)
+  real*8 presvar_8(presvar_max)
+  integer, allocatable,dimension(:) :: lst_hy,lst_glb,lst_bang
+  integer, allocatable,dimension(:) :: lst_p0,lst_pt,lst_e1,lst_sf
   real, allocatable, dimension(:,:,:) :: press,work
-  real, allocatable, dimension(:,:) :: p0,pt,e1
-  real, allocatable, dimension(:) :: hyb,hybm
-  integer, allocatable, dimension(:) :: ip1vec,ip1arr,nrec
+  real, allocatable, dimension(:,:) :: p0,pt,e1,sf
+  real, allocatable, dimension(:) :: hyb
+  integer, allocatable, dimension(:) :: ip1vec,ip1arr,nrec,lookup_ip1
+  real*8,allocatable,dimension(:) :: a_8,b_8,lookup_a_8,lookup_b_8
+  real*8,allocatable,dimension(:) :: work_8,wke_8
+  real*8 rcoefmin_8,rcoefmax_8,pref_8,ptop_8
 
-  real rcoef,ptop,pref,etatop
-  logical hytrouve, p0trouve, pttrouve, e1trouve
+  real rcoef,ptop,pref,etatop,hybm
+  logical hytrouve, p0trouve, pttrouve, e1trouve, bangtrouve, sftrouve
 
-  logical hycoor, etacoor, sigcoor, sefcoor
-  logical hydefined, etadefined, sigdefined, sefdefined
+  logical hycoor, etacoor, sigcoor, sefcoor, hystagcoor
+  logical hydefined, etadefined, sigdefined, sefdefined, hystagdefined
+  logical unnormhyb
 
-  integer longueur,fnom,fstouv,fstfrm,fstlir,fstluk,fstlnk
-  external longueur,fnom,fstouv,fstfrm,fstlir,fstluk,fstlnk
+  integer longueur,fnom,fstouv,fstfrm,fstinf,fstluk,fstlnk,wkoffit
+  external longueur,fnom,fstouv,fstfrm,fstinf,fstluk,fstlnk,wkoffit
   integer*2 subsort
   external subsort
-  integer fstprm,fstinl,write_encode_hyb,read_decode_hyb,hybrid_to_pres2
-  integer hybrid_to_pres3
-  external fstprm,fstinl,write_encode_hyb,read_decode_hyb,hybrid_to_pres2
-  external hybrid_to_pres3
+  integer fstprm,fstinl,write_encode_hyb,read_decode_hyb
+  integer read_decode_bang,hybstag_to_pres
+  integer etasef_to_pres,eta_to_pres,hyb_to_pres,sigma_to_pres
+  external fstprm,fstinl,write_encode_hyb,read_decode_hyb
+  external read_decode_bang,hybstag_to_pres
+  external etasef_to_pres,eta_to_pres,hyb_to_pres,sigma_to_pres
   integer fstecr,exdb,exfin
   external fstecr,exdb,exfin
 
   DATA LISTE /nkleiment*'iment','ozsrt','coor',&
- nklevar*'var','liste','help'/
-  DATA defaut/nkleiment*'SCRAP.SCRAP','out.fst','',nklevar*'    ','','AIDE'/
-  DATA val /nkleiment*'SCRAP.SCRAP','out.fst','',nklevar*'    ','','OK'/
+ nklevar*'var','liste','howto'/
+  DATA defaut/nkleiment*'SCRAP.SCRAP','out.fst','',nklevar*'    ','','howto'/
+  DATA val /nkleiment*'SCRAP.SCRAP','out.fst','',nklevar*'    ','',''/
 
 
-  npos=1                                                  
+  npos=1
   iunout=0
   nrectot=0
   hydefined=.false.
+  hystagdefined=.false.
   etadefined=.false.
   sigdefined=.false.
   sefdefined=.false.
+  unnormhyb=.false.
 
-  ier = exdb('HY2PRES','104','NON')
+ ier = exdb('HY2PRES','112','NON')
   call ccard(liste,defaut,val,nklemax,npos)
+! write(*,*)'val=',val(nklemax)(1:longueur(val(nklemax)))
+!  print*,'nklemax=',nklemax,'npos=',npos
 
-!write(6,*)'valcoor=',val(nkleiment+2)(1:longueur(val(nkleiment+2)))
+!write(*,*)'ozsrt=',val(nkleiment+1)(1:longueur(val(nkleiment+1)))
+ write(*,*)'coor=',val(nkleiment+2)(1:longueur(val(nkleiment+2)))
+ write(*,*)'var=',val(nkleiment+3)(1:longueur(val(nkleiment+3)))
   if(val(nkleiment+2)(1:longueur(val(nkleiment+2))).eq.'HYBLG') then
+     hydefined=.true.
+  elseif(val(nkleiment+2)(1:longueur(val(nkleiment+2))).eq.'HYSTAG') then
      hydefined=.true.
   elseif(val(nkleiment+2)(1:longueur(val(nkleiment+2))).eq.'SIGPT') then
      etadefined=.true. 
@@ -84,15 +111,24 @@
      sigdefined=.true. 
   elseif(val(nkleiment+2)(1:longueur(val(nkleiment+2))).eq.'ETASEF') then
      sefdefined=.true. 
+  elseif(val(nkleiment+2)(1:longueur(val(nkleiment+2))).eq.'UNNORMHYB') then
+     unnormhyb=.true. 
+     hydefined=.true.
   elseif(val(nkleiment+2)(1:longueur(val(nkleiment+2))).ne.'') then
+       write(*,*)' '
        write(*,*) 'ERROR: option given for -coor is not valid: abort'
+       write(*,*) 'Valid coor options are:HYBLG,HYSTAG,SIGPT,SIG,ETASEF,UNNORMHYB'
+       write(*,*) 'where HYSTAG=staggered hybrid,HYBLG=hybrid,SIGPT=eta,SIG=sigma,ETASEF=eta in SEF,and UNNORMHYB=unnormalized hybrid'
        call qqexit(-1)
   endif
-     
-!write(6,*)'val=',val(nklemax)(1:longueur(val(nklemax)))
-  if(val(nklemax)(1:longueur(val(nklemax))).eq.'AIDE') then
-     write(*,*) 'Usage: r.hy2pres -iment file_in -var [nomvar] -liste [niveaux] -coor [SIG/SIGPT/HYBLG/ETASEF] -ozsrt file_out'
+
+  if(val(nklemax)(1:longueur(val(nklemax))).eq.'HOWTO') then
+     write(*,*)' '
+     write(*,*) 'Usage: r.hy2pres -iment file_in -var [nomvar] -coor [SIG/SIGPT/HYBLG/ETASEF/UNNORMHYB/HYSTAG] -ozsrt file_out'
+     write(*,*) 'Usage: r.hy2pres -iment 20091020_001 -var TT UU -coor UNNORMHYB -ozsrt filePX'
+       write(*,*) 'where -coor is optional'
   endif
+     
   
 ! Ouverture des fichiers
 
@@ -107,6 +143,7 @@
     ier = fnom(iun(i),val(i)(1:longueur(val(i))),'RND+OLD+R/O',0)
 
     if(ier.ne.0) then
+       write(*,*)' '
        write(*,*) 'ERROR: file opening failed: abort'
        call qqexit(ier)
     endif
@@ -119,6 +156,7 @@
 
     ier = FSTOUV(iun(i), 'RND')
     if(ier.lt.0) then
+       write(*,*)' '
        write(*,*) 'ERROR: standard file opening failed: abort'
        call qqexit(ier)
     else
@@ -126,23 +164,32 @@
        nrec(i)=ier
     endif
 
-!    write(*,*) 'MESSAGE: fichier standard ouvert ',val(i)(1:longueur(val(i)))
+     write(*,*) 'MESSAGE: fichier standard ouvert ',val(i)(1:longueur(val(i)))
 
   enddo
   if(nfile.eq.0) then
-     write(*,*) 'ERROR: no standard file to check! abort'
+     write(*,*)' '
+     write(*,*) 'ERROR: no standard file to read from (-iment)! abort'
      call qqexit(1)
   endif
 
   if(iunout.eq.0)  then
-     ier = fnom(iunout,val(nkleiment+1)(1:longueur(val(nkleiment+1))),'RND+NEW',0)
+     ier = wkoffit(val(nkleiment+1)(1:longueur(val(nkleiment+1))))
+     if(ier.ne.-2.and.ier.ne.-3) then
+       write(*,*)' '
+       write(*,*) 'ERROR: output file exists (-ozsrt): abort'
+       call qqexit(-1)
+     endif
+     ier = fnom(iunout,val(nkleiment+1)(1:longueur(val(nkleiment+1))),'RND',0)
      if(ier.ne.0) then
-       write(*,*) 'ERROR: output file opening failed: abort'
+       write(*,*)' '
+       write(*,*) 'ERROR: output file opening failed (-ozsrt): abort'
        call qqexit(ier)
      endif
      ier = FSTOUV(iunout, 'RND')
      if(ier.lt.0) then
-       write(*,*) 'ERROR: output standard file opening failed: abort'
+       write(*,*)' '
+       write(*,*) 'ERROR: output standard file opening failed (-ozsrt): abort'
        call qqexit(ier)
      endif
   endif
@@ -164,22 +211,57 @@
   p0trouve=.false.
   pttrouve=.false.
   e1trouve=.false.
+  bangtrouve=.false.
   np0=0
-  allocate(lst_hy(nrectot),lst_glb(nrectot) &
-       ,lst_p0(nrectot) &
-       ,lst_pt(nrectot) &
-       ,lst_e1(nrectot) )
+  allocate(lst_hy(nrectot) &
+          ,lst_glb(nrectot) &
+          ,lst_p0(nrectot) &
+          ,lst_sf(nrectot) &
+          ,lst_pt(nrectot) &
+          ,lst_bang(nrectot) &
+          ,lst_e1(nrectot) )
+  write(*,*)' '
+!    print *,'fstinl on !!'
+     key = fstinl(iun(1),NI,NJ,NK,datev,etiket,ip1,ip2,ip3,typvar,'!!',lst_bang,nbang,nrectot)
+     if(nbang.gt.0) then
+        write(*,*) 'MESSAGE: !! found at key(s): ',lst_bang(1:nbang)
+        write(*,*) 'MESSAGE: taking !! at key: ',lst_bang(1)
+        bangtrouve=.true.
+     endif
+!    print *,'fstinl on PT'
+     key = fstinl(iun(1),NI,NJ,NK,datev,etiket,ip1,ip2,ip3,typvar,'PT',lst_pt,npt,nrectot)
+     if(npt.gt.0) then
+        write(*,*) 'MESSAGE: PT found at key(s): ',lst_pt(1:npt)
+        write(*,*) 'MESSAGE: taking PT at key: ',lst_pt(1)
+        pttrouve=.true.
+     endif
+!    print *,'fstinl on HY'
   do ii=nfile,1,-1
      key = fstinl(iun(ii),NI,NJ,NK,datev,etiket,ip1,ip2,ip3,typvar,'HY',lst_hy,nhy,nrectot)
      if(nhy.gt.0) then
         write(*,*) 'MESSAGE: HY found at key(s): ',lst_hy(1:nhy)
-        write(*,*) 'MESSAGE: taking HY at key: ',lst_hy(1)
-        hyfile=ii
-        hytrouve=.true.
-        exit
+        if (npt.eq.0) then
+            write(*,*) 'MESSAGE: taking HY at key: ',lst_hy(1)
+!           write(*,*) 'npt=',npt,'hyfile=',hyfile,'iun(hyfile)=',iun(ii)
+            hyfile=ii
+            hytrouve=.true.
+            exit
+        else 
+            write(*,*) 'MESSAGE: ignore HY at key: ',lst_hy(1)
+            write(*,*) 'MESSAGE: PT was found, coordinate is true ETA'
+            nhy=0
+        endif
      endif
   enddo
 
+! print *,'fstinl on SF'
+  ier = fstinl(iun(1),NI,NJ,NK,datev,etiket,ip1,ip2,ip3,typvar,'!!SF',lst_sf,nsf,nrectot)
+  if(nsf.gt.0) then
+     write(*,*) 'MESSAGE: !!SF found at key(s): ',lst_sf(1:nsf)
+     sftrouve=.true.
+  endif
+
+! print *,'fstinl on P0'
   ier = fstinl(iun(1),NI,NJ,NK,datev,etiket,ip1,ip2,ip3,typvar,'P0',lst_p0,np0,nrectot)
 
   if(np0.gt.0) then
@@ -187,13 +269,8 @@
      p0trouve=.true.
   endif
 
-  key = fstinl(iun(1),NI,NJ,NK,datev,etiket,ip1,ip2,ip3,typvar,'PT',lst_pt,npt,nrectot)
-  if(npt.gt.0) then
-     write(*,*) 'MESSAGE: PT found at key(s): ',lst_pt(1:npt)
-     write(*,*) 'MESSAGE: taking PT at key: ',lst_pt(1)
-     pttrouve=.true.
-  endif
 
+! print *,'fstinl on E1'
   ier = fstinl(iun(1),NI,NJ,NK,datev,etiket,ip1,ip2,ip3,typvar,'E1',lst_e1,ne1,nrectot)
   if(ne1.gt.0) then
      write(*,*) 'MESSAGE: E1 found at key(s): ',lst_e1(1:ne1)
@@ -203,23 +280,33 @@
 
 ! Bilan de ce qu'on a
 !
-  if(.not.p0trouve) then
+  if (bangtrouve) then
+!     print *,'check if !!SF exists with !!'
+      if (.not.sftrouve) then
+          write(*,*) 'ERROR: no !!SF record found for !! record: abort'
+          call qqexit(-1)
+      endif
+      do i=1,nsf
+         lst_p0(i)=lst_sf(i)
+      enddo
+      np0=nsf
+  elseif(.not.p0trouve) then
      write(*,*) 'ERROR: no P0 record found: abort'
      call qqexit(-1)
   endif
   
   hycoor=.false.
+  hystagcoor=.false.
   etacoor=.false.
   sigcoor=.false.
   sefcoor=.false.
   
-  if(hytrouve) then
-     if (etadefined .or. sigdefined .or. sefdefined) then
-         write(*,*)'ERROR: (HYB) HYBLG found, -coor=',val(nkleiment+2)(1:longueur(val(nkleiment+2))), ', abort'
+  if(bangtrouve) then
+     hystagcoor=.true.
+     if (hydefined) then 
+         write(*,*)'ERROR: (VSTAG) HYSTAG found, -coor=',val(nkleiment+2)(1:longueur(val(nkleiment+2))), ', abort'
          call qqexit(-1)
      endif
-     write(*,*) 'MESSAGE: The hybrid coordinate will be used'
-     hycoor=.true.
   else if(pttrouve) then
      if (hydefined .or. sigdefined) then
          write(*,*)'ERROR: (ETA) SIGPT found, -coor=',val(nkleiment+2)(1:longueur(val(nkleiment+2))), ', abort'
@@ -240,6 +327,14 @@
         write(*,*) 'MESSAGE: The eta coordinate will be used'
         etacoor=.true.
      endif
+  else if(hytrouve) then
+     if (etadefined .or. sigdefined .or. sefdefined) then
+         write(*,*)'ERROR: (HYB) HYBLG found, -coor=',val(nkleiment+2)(1:longueur(val(nkleiment+2))), ', abort'
+         call qqexit(-1)
+     endif
+     write(*,*) 'MESSAGE: The hybrid coordinate will be used'
+     if (unnormhyb) write(*,*) 'MESSAGE: Unnormalized coordinate indicated'
+     hycoor=.true.
   else
      if (hydefined .or. etadefined .or. sefdefined) then
          write(*,*)'ERROR: (SIG) SIG found, -coor=',val(nkleiment+2)(1:longueur(val(nkleiment+2))), ', abort'
@@ -250,32 +345,68 @@
   endif
 
 ! On ramasse HY
-  if(hycoor) then
+  if (hystagcoor) then
+     ier = FSTPRM(lst_bang(1), dateo, deet, npas, NI, NJ, NK,nbits,&
+          datyp, ip1x,ip2x,ip3x, typvar,nomvar,etiket,grtyp,ig1,ig2,ig3,&
+          ig4,  scrap, scrap, scrap, scrap, scrap, scrap, scrap)
+     deltat_8=(deet*npas)/3600.0
+     call incdatr(datev,dateo,deltat_8)
+     allocate (work_8(ni*nj))
+     allocate (wke_8(ni*nj))
+     ier=fstluk(work_8,lst_bang(1),NI,NJ,NK)
+     lookup_max=nj
+     allocate (lookup_a_8(lookup_max))
+     allocate (lookup_b_8(lookup_max))
+     allocate (a_8(lookup_max))
+     allocate (b_8(lookup_max))
+     allocate (lookup_ip1(lookup_max))
+     key = read_decode_bang(iun(1),ig1,ig2,datev, etiket,&
+                        lookup_ip1,lookup_max,lookup_a_8,lookup_b_8,&
+                        vcode,presvar_8,presvar_S,presvar_max)
+     pref_8=presvar_8(1)
+     ptop_8=presvar_8(2)
+     rcoefmin_8=presvar_8(4)
+     rcoefmax_8=presvar_8(5)
+     write(*,*) 'MESSAGE:vcode=',vcode
+     write(*,*) 'MESSAGE:ptop_8=',ptop_8,'Pa'
+     write(*,*) 'MESSAGE:pref_8=',pref_8,'Pa'
+     write(*,*) 'MESSAGE:rcoefmin=',rcoefmin_8
+     write(*,*) 'MESSAGE:rcoefmax=',rcoefmax_8
+     write(*,*) 'MESSAGE:i,ip1code,hyb,a_8,b_8'
+!    do j=1,lookup_max
+!       call convip(lookup_ip1(j),hybm,kind,-1,out_S,.false.)
+!       write(*,1001) j,lookup_ip1(j),hybm,lookup_a_8(j),lookup_b_8(j)
+!    enddo
+ 1001  format(i4,i10,e17.8,f20.15,f20.15)
+     ier = FSTECR(work_8, wke_8, -nbits, iunout, dateo,& 
+             deet, npas, ni, nj,1,&
+             ip1x, ip2x, ip3x, typvar,nomvar , etiket, grtyp,&
+             ig1, ig2, ig3, ig4, datyp, .false.)
+  else if(hycoor) then
      ier = FSTPRM(lst_hy(1), dateo, deet, npas, NI, NJ, NK,nbits,&
           scrap, IP1,&
           IP2, IP3, TYPVAR, NOMVAR, ETIKET, scrap, IG1, IG2, IG3,&
           IG4, scrap, scrap, scrap, scrap, scrap, scrap, scrap)
-     deltat=(deet*npas+1800)/3600
-     call incdat(datev,dateo,deltat)
+     deltat_8=(deet*npas)/3600.0
+     call incdatr(datev,dateo,deltat_8)
      key = read_decode_hyb(iun(hyfile), 'HY', -1, -1, ' ',-1,ptop,pref,rcoef)
-     write(*,*) 'MESSAGE: ptop=',ptop,' pref=',pref,' rcoef=',rcoef
+     write(*,*) 'MESSAGE: ptop=',ptop,'mb  pref=',pref,'mb rcoef=',rcoef
      key = write_encode_hyb(iunout,'HY  ',ip2,ip3,etiket,datev,ptop,pref,rcoef)
 
-     ! On ramasse PTOP
+! On ramasse PTOP
   else if(etacoor.or.sefcoor) then
      ier = FSTPRM(lst_pt(1), dateo, deet, npas, NI, NJ, NK,nbits,&
           scrap, IP1,&
           IP2, IP3, TYPVAR, NOMVAR, ETIKET, scrap, IG1, IG2, IG3,&
           IG4, scrap, scrap, scrap, scrap, scrap, scrap, scrap)
-      deltat=(deet*npas+1800)/3600
-     call incdat(datev,dateo,deltat)
-    if(nk.ne.1) then
+     deltat_8=(deet*npas)/3600.0
+     call incdatr(datev,dateo,deltat_8)
+     if(nk.ne.1) then
         write(*,*) 'ERROR: nk for PT not equal to 1'
         call qqexit(-1)
      endif
-     
      allocate(pt(ni,nj))
-!get pt(ptop),ni,nj,nk given lst_pt(1) and verify if it is uniform
+     ! get pt(ptop),ni,nj,nk given lst_pt(1) and verify if it is uniform
      ier=fstluk(pt,lst_pt(1),NI,NJ,NK)
      ptop=pt(1,1)
      do i=1,ni
@@ -288,26 +419,26 @@
      enddo
      deallocate(pt)
 
+! On ramasse ETATOP
      if(sefcoor) then
-!get e1 (etatop), ni,nj,nk using file handle lst_e1(1)
         allocate(e1(ni,nj))
         ier = fstluk(e1, lst_e1(1), NI, NJ, NK)
         etatop=e1(1,1)
+        write(*,*) 'MESSAGE: ptop=',ptop,'mb   etatop=',etatop
         deallocate(e1)
+     else
+        write(*,*) 'MESSAGE: ptop=',ptop,'mb'
      endif
 
-     pref=800.0
-     rcoef=1.0
-     write(*,*) 'MESSAGE: ptop=',ptop,' pref=',pref,' rcoef=',rcoef
-!     key = write_encode_hyb(iunout,'HY  ',ip2,ip3,etiket,datev,ptop,pref,rcoef)
-  else if(sigcoor) then
-     pref=800.0
-     rcoef=1.0
-     ptop=0.0
-     write(*,*) 'MESSAGE: ptop=',ptop,' pref=',pref,' rcoef=',rcoef
+  endif
+  write(*,*)
+  if (hystagcoor) then
+      write(*,*) 'MESSAGE: Number of !!SF records found=',np0
+  else
+      write(*,*) 'MESSAGE: Number of P0 records found=',np0
   endif
 
-! On ramasse les P0 et tout ce qu'il faut
+! On ramasse les P0/SF et tout ce qu'il faut
   
   do 1000 m=1,np0
      ip1=-1
@@ -316,20 +447,38 @@
      datev=-1
      typvar=' '
      etiket=' '
-     ier = FSTPRM(lst_p0(m), dateo, deet, npas, NI, NJ, NK,nbits,&
+     ier = FSTPRM(lst_p0(m), dateo, deet, npas, NI, NJ, NK,nbits_p0,&
           scrap, IP1,&
           IP2, IP3, TYPVAR, NOMVAR, ETIKET, scrap, IG1, IG2, IG3,&
           IG4, scrap, scrap, scrap, scrap, scrap, scrap, scrap)
-     deltat=(deet*npas+1800)/3600
-     call incdat(datev,dateo,deltat)
+     deltat_8=(deet*npas)/3600.0
+     call incdatr(datev,dateo,deltat_8)
+
+     if (hystagcoor) then
+     print *
+     print *,'------------------------------------------'
+     print *,'To read !!SF for npas=',npas,'deet=',deet
+     print *,'------------------------------------------'
+     else
+     print *
+     print *,'------------------------------------------'
+     print *,'To read   P0 for npas=',npas,'deet=',deet
+     print *,'------------------------------------------'
+     endif
+
 
      if(nk.ne.1) then
+        if (hystagcoor) then
+        write(*,*) 'ERROR: nk for SF not equal to 1'
+        else
         write(*,*) 'ERROR: nk for P0 not equal to 1'
+        endif
         call qqexit(-1)
      endif
      
      allocate(p0(ni,nj))
 !    get p0,ni,nj,nk using lst_p0(m)
+
      ier = fstluk(p0, lst_p0(m), NI, NJ, NK)
      !
      ! On ramasse tous les records et tous les ip1 correspondants a ce p0.
@@ -350,10 +499,11 @@
               stop
            endif
         endif
-!       print *,'fstinl on nomvar2=',nomvar2
-        key = fstinl(iun(1),NI,NJ,NK,datev,etiket,-1,ip2,ip3,typvar,nomvar2 &
+!       print *,'fstinl on nomvar2=',nomvar2,'datev=',datev
+!       print *,'typvar=',typvar,'ip2=',ip2,'ip3=',ip3,'datev=',datev,'etik=',etiket
+        key = fstinl(iun(1),NI,NJ,NK,datev,' ',-1,-1,ip3,typvar,nomvar2 &
              ,lst_glb(nvar+1), nvar_inter ,nrectot)
-!       print *,'nvar_inter=',nvar_inter
+!       print *,'nvar_inter=',nvar_inter,'key=',key
         nvar=nvar+nvar_inter
      enddo
 
@@ -362,7 +512,7 @@
      if(nvar.ge.0.and.key.ge.0) then
         do i=1,nvar
            ier = FSTPRM(lst_glb(i), dateo, deet, npas, NI, NJ, NK,nbits,&
-                scrap, ip1arr(i) ,&
+                datyp, ip1arr(i) ,&
                 IP2, IP3, TYPVAR, NOMVAR, ETIKET, scrap, IG1, IG2, IG3,&
                 IG4, scrap, scrap, scrap, scrap, scrap, scrap, scrap)
         enddo
@@ -395,41 +545,62 @@
          write(*,*)'***********************************'
      endif
 
-     allocate(hyb(nlev),hybm(nlev))
+     allocate(hyb(nlev))
 !    convip returns hyb,kind given ip1vec
      do i=1,nlev
         call convip(ip1vec(i),hyb(i),kind,-1,out_S,.false.)
-        write(*,*) 'i=',i,'ip1vec=',ip1vec(i), 'hyb=',hyb(i),'kind=',kind
+!       write(*,*) 'i=',i,'ip1vec=',ip1vec(i), 'hyb=',hyb(i)
      enddo
+     if (hycoor) then
+         if (kind.eq.1) write(*,*) 'MESSAGE: Normalized Hybrid coordinate found'
+         if (kind.eq.5) write(*,*) 'MESSAGE: UN-Normalized Hybrid coordinate found'
+         if (kind.ne.1.and.kind.ne.5) then
+             write(*,*) 'MESSAGE: Hybrid coordinate with unknown kind = ',kind
+             call qqexit(-1)
+         endif
+     endif
+
+     if (unnormhyb.and.hycoor.and.kind.eq.1) then
+         write(*,*) 'MESSAGE: Unnormalized HYBRID coordinate indicated'
+         write(*,*) 'MESSAGE: kind of ip1 is equal to 1, should be 5'
+         call qqexit(-1)
+     endif
+     if (hystagcoor.and.kind.ne.5) then
+         write(*,*) 'MESSAGE: Staggered hybrid coordinate with kind = ',kind,' which is not 5'
+         call qqexit(-1)
+     endif
+
+     if (hystagcoor) then
+         write(*,*) 'MESSAGE: Staggered Hybrid coordinate found'
+         do i=1,nlev
+         do j=1,lookup_max
+            if (ip1vec(i).eq.lookup_ip1(j)) then
+                a_8(i)=lookup_a_8(j)
+                b_8(i)=lookup_b_8(j)
+            endif
+         enddo
+         enddo
+     endif
 
      allocate(press(ni,nj,nlev),work(ni,nj,1))
-!    write(*,*) hyb
-!    write(*,*) ip1vec
 
-     if(sefcoor) then
-        ier = hybrid_to_pres3(press,ptop,p0,NI,NJ,hyb,etatop,nlev)
-     else
-        ier = hybrid_to_pres2(press,hybm,ptop,p0,NI,NJ,rcoef,pref,hyb,nlev)
-     endif
+     if (sefcoor) ier = etasef_to_pres(press,hyb,ptop,etatop,p0,NI,NJ,nlev)
+     if (etacoor) ier = eta_to_pres(press,hyb,ptop,p0,NI,NJ,nlev)
+     if (hycoor)  ier = hyb_to_pres(press,hyb,ptop,rcoef,pref,kind,p0,NI,NJ,nlev)
+     if (sigcoor) ier = sigma_to_pres(press,hyb,p0,NI,NJ,nlev)
+     if (hystagcoor) ier= hybstag_to_pres(press,a_8,b_8,p0,NI,NJ,nlev)
 
-     if (ier.lt.0) then
-         if (sefcoor) write(*,*)'Problem with function hybrid_to_pres3:ier=',ier
-         if (.not.sefcoor) write(*,*)'Problem with function hybrid_to_pres2:ier=',ier
-         stop
-     endif
-     ier = FSTPRM(lst_p0(m), dateo, deet, npas, NI, NJ, NK,nbits,&
+     ier = FSTPRM(lst_p0(m), dateo, deet, npas, NI, NJ, NK,nbits_p0,&
           datyp, IP1,&
           IP2, IP3, TYPVAR, NOMVAR, ETIKET, grtyp, IG1, IG2, IG3,&
           IG4, scrap, scrap, scrap, scrap, scrap, scrap, scrap)
-          deltat=(deet*npas+1800)/3600
-          call incdat(datev,dateo,deltat)
      do k=1,nlev
-        ier = FSTECR(press(1,1,k), WORK, -nbits, iunout, dateo,& 
+        ier = FSTECR(press(1,1,k), WORK, -nbits_p0, iunout, dateo,& 
              deet, npas, ni, nj,1,&
              ip1vec(k), ip2, ip3, typvar,'PX' , etiket, grtyp,&
-             ig1, ig2, ig3, ig4, datyp, .false.)
+             ig1, ig2, ig3, ig4, datyp, .true.)
      enddo
-     deallocate(p0,hyb,ip1vec,hybm,press,work)
+     deallocate(p0,hyb,ip1vec,press,work)
 
  1000  continue
   
@@ -445,7 +616,7 @@
      ier = FSTFRM(iunout)
      call fclos(iunout)
   endif
-  ier = exfin('HY2PRES','104','NON')
+  ier = exfin('HY2PRES','112','NON')
   
 end program hy2pres
 
@@ -459,8 +630,3 @@ INTEGER*2 FUNCTION SUBSORT (A,B)
   RETURN
 END FUNCTION SUBSORT
 
-      
-      character *128 function product_id_tag()
-      product_id_tag='$Id$'
-      return
-      end
