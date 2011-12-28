@@ -1,4 +1,4 @@
-#include Makefile_$(ARCH)$(ABI)
+#include Makefile_$(EC_ARCH)$(ABI)
 
 .SUFFIXES :
 
