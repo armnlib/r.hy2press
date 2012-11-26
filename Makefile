@@ -16,6 +16,8 @@ CPPFLAGS = -I$(ARMNLIB)/include
 
 .PRECIOUS: $(RMNLIB) $(MALIB)
 
+VER = 106
+
 default: hy2pres
 
 include $(ARMNLIB)/include/makefile_suffix_rules.inc
@@ -25,12 +27,8 @@ OBJECTS= hy2pres.o hybref_688.o hybstag_to_pres.o read_decode_bang.o
 
 FICHIERS = $(FDECKS)
 
-gen_ec_arch_dir:
-#Creer le repertoire $EC_ARCH 
-	mkdir -p ./$(EC_ARCH)
-
-hy2pres: gen_ec_arch_dir $(OBJECTS)
-	r.build -o ./$(EC_ARCH)/hy2pres_tst -obj $(OBJECTS) -librmn rmn_010 
+hy2pres: $(OBJECTS)
+	s.compile -o hy2pres_$(VER)-$(BASE_ARCH) -obj $(OBJECTS) -librmn rmn_013 
 clean:
 #Faire le grand menage. On enleve tous les fichiers sources\ninutiles et les .o 
 	-if [ "*.ftn90" != "`echo *.ftn90`" ] ; \
@@ -49,4 +47,4 @@ clean:
 	rm -f $$.f90; \
 	done \
 	fi
-	rm -f *.o *.mod *.f
+	rm -f *.o *.mod *.f hy2pres_$(VER)-$(BASE_ARCH)
