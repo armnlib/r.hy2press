@@ -19,6 +19,7 @@
 !v111                     and use fstinf to search for !! (fstlir buggy)
 !v112    V.Lee Jan 26,2010: output of PX uses compaction defined in P0/SF
 !v112                       compiler pgi9xx
+!v113    M.Lepine Mar 2014: reload with librmn_014
  
   integer nklemax,npos
   integer nkleiment
@@ -93,7 +94,7 @@
   sefdefined=.false.
   unnormhyb=.false.
 
- ier = exdb('HY2PRES','112','NON')
+ ier = exdb('HY2PRES','113','NON')
   call ccard(liste,defaut,val,nklemax,npos)
 ! write(*,*)'val=',val(nklemax)(1:longueur(val(nklemax)))
 !  print*,'nklemax=',nklemax,'npos=',npos

@@ -16,7 +16,9 @@ CPPFLAGS = -I$(ARMNLIB)/include
 
 .PRECIOUS: $(RMNLIB) $(MALIB)
 
-VER = 106
+VER = 113
+
+LIBRMN = rmn_014
 
 default: hy2pres
 
@@ -28,7 +30,7 @@ OBJECTS= hy2pres.o hybref_688.o hybstag_to_pres.o read_decode_bang.o
 FICHIERS = $(FDECKS)
 
 hy2pres: $(OBJECTS)
-	s.compile -o hy2pres_$(VER)-$(BASE_ARCH) -obj $(OBJECTS) -librmn rmn_013 
+	s.compile -o hy2pres_$(VER)-$(BASE_ARCH) -obj $(OBJECTS) -librmn $(LIBRMN) 
 clean:
 #Faire le grand menage. On enleve tous les fichiers sources\ninutiles et les .o 
 	-if [ "*.ftn90" != "`echo *.ftn90`" ] ; \
