@@ -38,7 +38,7 @@
   integer dateo,deltat
   real*8 deltat_8
   integer ig1,ig2,ig3,ig4,scrap,nrectot
-  integer deet,npas,nbits,datyp,nbits_p0,datyp
+  integer deet,npas,nbits,datyp,nbits_p0
 
   character*12 etiket
   character*4 nomvar,nomvar2
