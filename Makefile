@@ -30,7 +30,7 @@ OBJECTS= hy2pres.o hybref_688.o hybstag_to_pres.o read_decode_bang.o
 FICHIERS = $(FDECKS)
 
 hy2pres: $(OBJECTS)
-	s.compile -o hy2pres_$(VER)-$(BASE_ARCH) -obj $(OBJECTS) -librmn $(LIBRMN) 
+	s.compile -o r.hy2pres_$(VER)-$(BASE_ARCH) -obj $(OBJECTS) -librmn $(LIBRMN) 
 clean:
 #Faire le grand menage. On enleve tous les fichiers sources\ninutiles et les .o 
 	-if [ "*.ftn90" != "`echo *.ftn90`" ] ; \
@@ -49,4 +49,4 @@ clean:
 	rm -f $$.f90; \
 	done \
 	fi
-	rm -f *.o *.mod *.f hy2pres_$(VER)-$(BASE_ARCH)
+	rm -f *.o *.mod *.f r.hy2pres_$(VER)-$(BASE_ARCH)
