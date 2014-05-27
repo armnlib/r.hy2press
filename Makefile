@@ -12,7 +12,7 @@ CFLAGS =
 
 OPTIMIZ = -O 2
 
-CPPFLAGS = -I$(ARMNLIB)/include
+CPPFLAGS = 
 
 .PRECIOUS: $(RMNLIB) $(MALIB)
 
@@ -22,7 +22,7 @@ LIBRMN = rmn_014
 
 default: hy2pres
 
-include $(ARMNLIB)/include/makefile_suffix_rules.inc
+include $(RPN_TEMPLATE_LIBS)/include/makefile_suffix_rules.inc
 
 FDECKS= hy2pres.ftn90 hybref_688.ftn hybstag_to_pres.ftn read_decode_bang.ftn
 OBJECTS= hy2pres.o hybref_688.o hybstag_to_pres.o read_decode_bang.o
