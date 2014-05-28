@@ -11,6 +11,7 @@ FFLAGS =
 CFLAGS =
 
 OPTIMIZ = -O 2
+$(info OPTIMIZ is ${OPTIMIZ})
 
 CPPFLAGS = 
 
@@ -18,7 +19,7 @@ CPPFLAGS =
 
 VER = 113
 
-LIBRMN = rmn_014
+LIBRMN = 
 
 default: hy2pres
 
