@@ -21,6 +21,7 @@
 !v112                       compiler pgi9xx
 !v113    M.Lepine Mar 2014: reload with librmn_014
 !v114    M.Lepine Dec 2014: reload with librmn_015.1
+!v115    M.Lepine Fev 2015: reload with librmn_015.2
  
   integer nklemax,npos
   integer nkleiment
@@ -95,7 +96,7 @@
   sefdefined=.false.
   unnormhyb=.false.
 
- ier = exdb('HY2PRES','114','NON')
+ ier = exdb('HY2PRES','115','NON')
   call ccard(liste,defaut,val,nklemax,npos)
 ! write(*,*)'val=',val(nklemax)(1:longueur(val(nklemax)))
 !  print*,'nklemax=',nklemax,'npos=',npos
